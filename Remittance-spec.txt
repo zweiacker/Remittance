@@ -1,0 +1,84 @@
+*** Taks description
+
+- Alice has an ethereum account.
+
+- Bob doesn't necessarily have an ethereum account.
+
+- Carol has an ethereum account.
+
+- Alice loads a money transfer by telling the Remittance contract the recipient, value and two passwords.
+
+- Alice gives one password to Bob and the other to Carol.
+
+- Carol calls the Remittance contract from her registered address. She needs both passwords to unlock the transaction and receive the escrowed money.
+
+
+
+
+*** Contract specs
+
+- Alice must be the owner of the contract, so only she can load() new money transfers.
+
+- Alice can unload(), like, if the load() was in error.
+
+- Carol can use the release() function to get the money previously loaded.
+
+- release() is based on Carol's address and the two passwords.
+
+- The passwords are not truly OTP, as they are used as long as the transfer has not been sucessfully completed. In case of a tx failure, the same passwords would have to be used in the next try.
+
+- The contract computes a hash of Carol's address and the two passwords, resulting in a unique number. That number is used as the transactionId, or the key, of the transfers mapping.
+
+- release() is based on the transactionId alone. If the requestor's address and both passwords combine to the same hash as the key of the transfer, the money will be released.
+
+- password handling is tricky. publicly storing the hash of both passwords in the contract would be just as insecure as publishing the plain passwords. We therefore need more than a simple hash of the passwords. Proceed like this:
+
+(0) In the load() function, Alice stores secHash = hash(hash(pw1), hash(pw2)) in a new "transfer" object along with the beneficiary's address (Carol's). The amount deposited is the amount sent in the tx, i.e. msg.value
+ 
+(1) Carol + Bob provide a hash of their respective passwords to the contract from a website. The website converts both passwords into a hash before and sends it on behalf of Carol's account (making it the "sender") to the contract.
+
+(2) Carol, the beneficiary, is tested for her legitimation to release() by asserting that her address is the sender.
+
+(3) In the release() function, both passwords hashes are being hashed once more, so they can be compared to the secHash variable stored in the transaction object.
+
+(4) The transaction object is identified by the mapping
+
+
+Details on the hashing function (as computed by node's solditySha3 hash function)
+--- pwBob is "bob" / pwCarol is "carol" --> they are the only knowledge Bob & Carol have
+--- Carol's address (accounts[2]) = "0x4b0897b0513fdc7c541b6d9d7e929c4e5364d2db"
+
+--- prepare hash1 to equal keccak256('bob') = "0x38e47a7b719dce63662aeaf43440326f551b8a7ee198cee35cb5d517f2d296a2"
+--- prepare hash2 to equal keccak256('carol') = "0x2c52130a69b3254240c961f6acfb09713f4f9cc14aa498cbf844b94a27da64ff"
+
+--- doubleHash = keccak256 (pwBob_hash, pwCarol_hash) = "0x9c6fc82bf988dbe4b4a4f552c8392bf6047e3c902d4bb3454dc7ac7f83f59153"
+Those details are all known to Carol
+
+--- locHash = keccak256 (doubleHash, address)
+This is computed on the fly to check the input data against a loaded transferal
+
+
+------------------------
+Details on SHA in node:
+------------------------
+
+//	load web3-utils first, so soliditySha3 is loaded...
+
+> var Web3Utils = require('web3-utils');
+> web3.utils.soliditySha3('234564535', '0xfff23243', true, -10);
+ReferenceError: web3 is not defined
+> Web3Utils.soliditySha3('234564535', '0xfff23243', true, -10);
+'0x3e27a893dc40ef8a7f0841d96639de2f58a132be5ae466d40087a2cfa83b7179'
+> Web3Utils.soliditySha3('bob')
+'0x38E47A7B719DCE63662AEAF43440326F551B8A7EE198CEE35CB5D517F2D296A2'
+> Web3Utils.soliditySha3('carol')
+'0x2c52130a69b3254240c961f6acfb09713f4f9cc14aa498cbf844b94a27da64ff'
+> var _hash1 = '0x38E47A7B719DCE63662AEAF43440326F551B8A7EE198CEE35CB5D517F2D296A2'
+> var _hash2 = '0x2c52130a69b3254240c961f6acfb09713f4f9cc14aa498cbf844b94a27da64ff'
+> Web3Utils.soliditySha3(_hash1, _hash2);
+'0x9c6fc82bf988dbe4b4a4f552c8392bf6047e3c902d4bb3454dc7ac7f83f59153'
+
+
+
+
+
